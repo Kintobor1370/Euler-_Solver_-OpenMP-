@@ -1,7 +1,10 @@
 # Euler-_Solver_-OpenMP-
 Solver for integral-differential equations for first and second spatial moment using Euler method
+These programs carries out experiments 14.4 and 14.6 (LawDieckmann200a.pdf: pages 13, 17)
 \
-(Tested on Windows 10.)
+\
+_Tested on Windows 10._
+\
 \
 HOW TO COMPILE THE PROGRAMS:
 
@@ -13,3 +16,4 @@ HOW TO COMPILE THE PROGRAMS:
 ```
 	a.exe
 ```
+3. Select an experiment.
