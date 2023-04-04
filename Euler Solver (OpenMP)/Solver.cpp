@@ -74,16 +74,85 @@ MatrixOfMatrix VectorToMatrixOfMatrix(Vector vec, int mat_of_mat_size, int mat_s
 }
 
 
+//________________________________________________CALCULATION PARAMETERS___________________________________________________
+struct Parameters
+{
+    Vector MidPointsKernels;                                            // The mid-points of bins that correspond to kernels indices
+    CalcType MidPointsKernelsWidth;
+    Vector MidPointsMoments;                                            // The mid-points of bins that correspond to second moments indices
+
+public:
+    //..............................GENERATE KERNEL
+    pair<Matrix, CalcType> GenerateKernel(
+        CalcType s,                                                     // Sigma 
+        CalcType R,                                                     // Max radius 
+        KernelType type
+    ) {
+        Vector m = MidPointsKernels;
+        CalcType width = MidPointsKernelsWidth;
+
+        Matrix result(m.size(), m.size());
+        Vector m_square = m * m;
+        int max_bin = 0; 
+
+        // Compute
+        for (int x=0; x<m.size(); x++)
+        {
+            for (int y=0; y<m.size(); y++)
+            {
+                const auto r = hypot(m[x], m[y]);
+                if(r < R)
+                {
+                    switch(type)
+                    {
+                        case Normal:
+                            auto norm = 2 * PI * s * s * (1 - exp((-R * R) / (2 * s * s)));
+                            auto weight = exp((-r * r) / (2 * s * s));
+                            result[x][y] = weight / norm;
+                            break;
+                    }
+                    max_bin = std::max({max_bin, x, y});
+                }
+                else
+                    result[x][y] = 0;
+            }
+        }
+
+        // Renormalize
+        CalcType integral = 0;
+        for (int x=1-m.size(); x<m.size(); x++)
+            for (int y=1-m.size(); y<m.size(); y++)
+                integral += result[abs(x)][abs(y)];
+            
+        integral *= pow(width, 2);
+        result = result / integral;
+
+        return make_pair(result, max_bin);
+    }
+
+    //..............................GENERATE CALCULATION PARAMETERS
+    static Parameters Generate(
+        int moments_num,                                                    // Number of mid-points for moments
+        CalcType moments_width,                                             // Bin width for moments
+        int kernels_num,                                                    // Number of mid-points for kernels
+        CalcType kernels_width                                              // Bin width for kernels
+    ) {
+        Vector kernels_partition = Vector::setLinSpaced(kernels_num, 0, kernels_num - 1) * kernels_width;   
+        Vector moments_partition = Vector::abs(-Vector::log(-Vector::setLinSpaced(moments_num, 0, moments_num - 1) / moments_num + 1) * moments_width * moments_num);
+
+        Parameters params;
+        params.MidPointsKernels = kernels_partition;
+        params.MidPointsKernelsWidth = kernels_width;
+        params.MidPointsMoments = moments_partition;
+        return params;
+    }
+};
+
+
 //___________________________________________________MODEL PROPERTIES______________________________________________________
 struct Properties
 {
-    int SpeciesCount;                                                   // Number of species                
-        
-    Vector MidPointsKernels;                                            // The mid-points of bins that correspond to kernels indexes
-    CalcType MidPointsKernelsWidth;
-    Vector MidPointsMoments;                                            // The mid-points of bins that correspond to second moments indexes
-    Matrix WMaxBin;                                                     // Maximum number of bins over which species i d-interacts with species j
-    Vector MMaxBin;                                                     // Maximum number of bins over which birth-movement of species i
+    int SpeciesNumber;                                                  // Number of species                
         
     Vector b;                                                           // Birth rate oer unit time in species i  (b)
     Vector d;                                                           // Death rate per unit time in species i  (d)
@@ -92,163 +161,98 @@ struct Properties
     VectorOfMatrix M;                                                   // Rate of birth-movement of species i to distance (x,y)  (m(x))
     MatrixOfMatrix W;                                                   // Death-weighting for neighbours j of species i at distance (x,y)  (w(x))
 
+    Matrix WMaxBin;                                                     // Maximum number of bins over which species i d-interacts with species j
+    Vector MMaxBin;                                                     // Maximum number of bins over which birth-movement of species i
+
     Vector SigmaM;
     Matrix SigmaW;
-};
 
-
-//__________________________________________________GENERATE KERNEL_______________________________________________________
-pair<Matrix, CalcType> GenerateKernel(Vector& midPoints, CalcType sigma, CalcType radius, CalcType width, KernelType type)
-{
-    const auto points = midPoints.size();
-    Vector midPointsSquare = midPoints * midPoints;
-    Matrix result(points, points);
-    int maxBin = 0;
+public:
+    //..............................GENERATE MODEL PROPERTIES
+    static Properties Generate(
+        int num,                                                            // Number of species
+        Matrix sW,                                                          // Sigma W
+        Vector sM,                                                          // Sigma M
+        Vector b,                                                           
+        Vector d,
+        Matrix dd,
+        Parameters params,                                                  // Calculation parameters
+        KernelType w_type = Normal,                                         // W kernel type
+        KernelType m_type = Normal                                          // M kernel type
+    ) {            
+        MatrixOfMatrix w(num, num);
+        Matrix w_max_bin(num, num);
+        Matrix max_radius_W;
+        if (w_type == Normal)
+            max_radius_W = sW * 3;
         
-    const CalcType squareSigma = sigma * sigma;
-    const CalcType squareMaxRadius = radius * radius;
-
-    // Compute
-    for (int x=0; x<points; x++)
-        for (int y=0; y<points; y++)
+        for (int i=0; i<num; i++)
         {
-            const auto r = hypot(midPoints[x], midPoints[y]);
-                
-            if (r < radius)
+            for (int j=0; j<num; j++)
             {
-                switch (type)
-                {
-                    case Normal:
-                        const auto SquareRadius = midPointsSquare[x] + midPointsSquare[y];
-                        const auto norm = 2 * PI * squareSigma * (1 - exp(-squareMaxRadius/(2 * squareSigma)));
-                        const auto weight = exp(-SquareRadius / (2 * squareSigma));
-                        result[x][y] = weight / norm;
-                        break;
-                }
-                maxBin = std::max({maxBin, x, y});
+                auto kernel_W = params.GenerateKernel(sW[i][j], max_radius_W[i][j], w_type);
+                w(i, j) = kernel_W.first;
+                w_max_bin[i][j] = kernel_W.second;
             }
-            else
-                result[x][y] = 0;
-        }
+        }       
+        VectorOfMatrix m(num);
+        Vector m_max_bin(num);
+        Vector max_radius_M;
+        if (m_type == Normal)
+            max_radius_M = sM * 3;
 
-    // Renormalize
-    CalcType integral = 0;
-    for (int x=1-points; x<points; x++)
-        for (int y=1-points; y<points; y++)
-            integral += result[abs(x)][abs(y)];
-        
-    integral *= pow(width, 2);
-    result = result / integral;
-
-    return make_pair(result, maxBin);
-}
-
-
-//_______________________________________________GENERATE MODEL PROPERTIES_________________________________________________
-Properties GenerateProperties(
-    int species,
-    Matrix sigmaW,
-    Vector sigmaM,
-    Vector b,
-    Vector d,
-    Matrix dd,
-    int momentsPoints,
-    CalcType momentsBinWidth,
-    int kernelsPoints,
-    CalcType kernelsBinWidth,
-    KernelType wKernelType,
-    KernelType mKernelType
-)
-{
-    Vector midPointsKernels;
-    midPointsKernels.setLinSpaced(kernelsPoints, 0, kernelsPoints - 1);
-    midPointsKernels = midPointsKernels * kernelsBinWidth;
-        
-    Vector midPointsMoments;
-    midPointsMoments.setLinSpaced(momentsPoints, 0, momentsPoints - 1);
-    midPointsMoments = VectorAbs(-VectorLog(-midPointsMoments / momentsPoints + 1) * momentsBinWidth * momentsPoints);
-        
-    MatrixOfMatrix w(species, species);
-    Matrix wMaxBin(species, species);
-    Matrix radiusW;
-    if (wKernelType == Normal)
-        radiusW = sigmaW * 3;
-    
-    for (int i=0; i<species; i++)
-        for (int j=0; j<species; j++)
+        for (int i=0; i<num; i++)
         {
-            auto wKernel = GenerateKernel(midPointsKernels, sigmaW[i][j], radiusW[i][j], kernelsBinWidth, wKernelType);
-            w(i, j) = wKernel.first;
-            wMaxBin[i][j] = wKernel.second;
+            auto kernel_M = params.GenerateKernel(sM[i], max_radius_M[i], m_type);
+            m(i) = kernel_M.first;
+            m_max_bin[i] = kernel_M.second;
         }
-            
-    VectorOfMatrix m(species);
-    Vector mMaxBin(species);
-    Vector radiusM;
-    if (mKernelType == Normal)
-        radiusM = sigmaM * 3;
 
-    for (int i=0; i<species; i++)
-    {
-        auto mKernel = GenerateKernel(midPointsKernels, sigmaM[i], radiusM[i], kernelsBinWidth, mKernelType);
-        m(i) = mKernel.first;
-        mMaxBin[i] = mKernel.second;
+        Properties props;
+        props.SpeciesNumber = num;
+        props.b = b;
+        props.d = d;
+        props.d_prime = dd;
+        props.M = m;
+        props.W = w;
+        props.WMaxBin = w_max_bin;
+        props.MMaxBin = m_max_bin;
+        props.SigmaM = sM;
+        props.SigmaW = sW;
+        return props;
     }
 
-    return Properties{
-        .SpeciesCount = species,
-        .MidPointsKernels = midPointsKernels,
-        .MidPointsKernelsWidth = kernelsBinWidth,
-        .MidPointsMoments = midPointsMoments,
-        .WMaxBin = wMaxBin,
-        .MMaxBin = mMaxBin,
-        .b = b,
-        .d = d,
-        .d_prime = dd,
-        .M = m,
-        .W = w,
-        .SigmaM = sigmaM,
-        .SigmaW = sigmaW,
-    };
-}
-
-
-//__________________________________________GENERATE PROPERTIES FOR ONE SPECIES____________________________________________
-Properties GenerateOneSpecies(
-    CalcType sigmaW,
-    CalcType sigmaM,
-    CalcType b,
-    CalcType d,
-    CalcType dd,
-    int momentsPoints,
-    CalcType momentsBinWidth,
-    int kernelsPoints,
-    CalcType kernelsBinWidth,
-    KernelType wKernelType,
-    KernelType mKernelType
-)
-{
-    return GenerateProperties(
-        1, 
-        Matrix(1, 1, sigmaW), 
-        Vector(1, sigmaM), 
-        Vector(1, b),
-        Vector(1, d),
-        Matrix(1, 1, dd),
-        momentsPoints,
-        momentsBinWidth,
-        kernelsPoints,
-        kernelsBinWidth,
-        wKernelType,
-        mKernelType
-    );
-}
+    //..............................GENERATE MODEL PROPERTIES FOR ONE SPECIES
+    static Properties GenerateOneSpecies(
+        CalcType sW,
+        CalcType sM,
+        CalcType b,
+        CalcType d,
+        CalcType dd,
+        Parameters params,
+        KernelType w_type,
+        KernelType m_type
+    ) {
+        return Generate(
+            1, 
+            Matrix(1, 1, sW), 
+            Vector(1, sM), 
+            Vector(1, b),
+            Vector(1, d),
+            Matrix(1, 1, dd),
+            params,
+            w_type,
+            m_type
+        );
+    }
+};
 
 
 //__________________________________EQUATIONS FOR THE FIRST AND SECOND MOMENT DYNAMICS_____________________________________
 class Equation
 {
-    Properties props;
+    Properties props;                                                   // Model properties
+    Parameters params;                                                  // Calculation parameters
     Vector N;                                                           // Vector of current first moments
     MatrixOfMatrix C;                                                   // Current second moments
 
@@ -256,9 +260,9 @@ private:
     // Make C (Matrix of Matrix) from Vector of values
     MatrixOfMatrix MakeC(Vector C_vals)
     {
-        assert(C_vals.size() == props.SpeciesCount * props.SpeciesCount * props.MidPointsMoments.size() * props.MidPointsMoments.size());
+        assert(C_vals.size() == props.SpeciesNumber * props.SpeciesNumber * params.MidPointsMoments.size() * params.MidPointsMoments.size());
 
-        MatrixOfMatrix result = VectorToMatrixOfMatrix(C_vals, props.SpeciesCount, props.MidPointsMoments.size()); 
+        MatrixOfMatrix result = VectorToMatrixOfMatrix(C_vals, props.SpeciesNumber, params.MidPointsMoments.size()); 
         return result;
     }
 
@@ -267,43 +271,44 @@ private:
     {
         Vector result = N;
         Vector C_To_Vector = MatrixOfMatrixToVector(C);
-        assert(result.size() == props.SpeciesCount);
-        assert(C_To_Vector.size() == props.SpeciesCount * props.SpeciesCount * props.MidPointsMoments.size() * props.MidPointsMoments.size());
+        assert(result.size() == props.SpeciesNumber);
+        assert(C_To_Vector.size() == props.SpeciesNumber * props.SpeciesNumber * params.MidPointsMoments.size() * params.MidPointsMoments.size());
         
         result.add(C_To_Vector);
         return result;
     }
 
-    Matrix CalculateF3(MatrixOfMatrix C, Vector N)
+    // Calculte integral W(xi)C(xi)dxi
+    Matrix CalculateIntegralOfWAndC(MatrixOfMatrix C, Vector N)
     {
-        Matrix result(props.SpeciesCount, props.SpeciesCount);
+        Matrix result(props.SpeciesNumber, props.SpeciesNumber);
 
-        for (int i=0; i<props.SpeciesCount; i++) 
-            for (int j=0; j<props.SpeciesCount; j++)
-                result[i][j] = IntegrateWithSecondMoments(0, 0, props.WMaxBin[i][j], props.W(i, j), C(i, j), N[i] * N[j]);
+        for (int i=0; i<props.SpeciesNumber; i++) 
+            for (int j=0; j<props.SpeciesNumber; j++)
+                result[i][j] = IntegrateWithPairDensity(0, 0, props.WMaxBin[i][j], props.W(i, j), C(i, j), N[i] * N[j]);
 
         return result;
     }
 
-    MatrixOfMatrix CalculateE1(MatrixOfMatrix C, Vector N)
+    MatrixOfMatrix CalculateIntegralOfMAndC(MatrixOfMatrix C, Vector N)
     {
-        MatrixOfMatrix result(props.SpeciesCount, props.SpeciesCount);
+        MatrixOfMatrix result(props.SpeciesNumber, props.SpeciesNumber);
         
-        for (int i=0; i<props.SpeciesCount; i++)
-            for (int j=0; j<props.SpeciesCount; j++)
+        for (int i=0; i<props.SpeciesNumber; i++)
+            for (int j=0; j<props.SpeciesNumber; j++)
             {
-                Matrix result_elem(props.MidPointsMoments.size(), props.MidPointsMoments.size());
+                Matrix result_elem(params.MidPointsMoments.size(), params.MidPointsMoments.size());
 
-                for (int xBin=0; xBin<props.MidPointsMoments.size(); xBin++)
-                    for (int yBin=0; yBin<props.MidPointsMoments.size(); yBin++)
-                        result_elem[xBin][yBin] = IntegrateWithSecondMoments(xBin, yBin, props.MMaxBin[i], props.M(i), C(i, j), N[i] * N[j]);
+                for (int xBin=0; xBin<params.MidPointsMoments.size(); xBin++)
+                    for (int yBin=0; yBin<params.MidPointsMoments.size(); yBin++)
+                        result_elem[xBin][yBin] = IntegrateWithPairDensity(xBin, yBin, props.MMaxBin[i], props.M(i), C(i, j), N[i] * N[j]);
 
                 result(i, j) = result_elem;
             }
         return result;
     }
 
-    CalcType IntegrateWithSecondMoments(int x_shift, int y_shift, int binCounts, Matrix kernels, Matrix C, CalcType asymptotic)
+    CalcType IntegrateWithPairDensity(int x_shift, int y_shift, int binCounts, Matrix kernels, Matrix C, CalcType asymptotic_value)
     {
         CalcType integral = 0;
         
@@ -311,26 +316,25 @@ private:
         {
             for (int j=-binCounts; j<=binCounts; j++)
             {
-                const CalcType sum_x = abs(props.MidPointsMoments[x_shift] + (i > 0 ? props.MidPointsKernels[i] : -props.MidPointsKernels[-i]));  // BEFORE
-                const CalcType sum_y = abs(props.MidPointsMoments[y_shift] + (j > 0 ? props.MidPointsKernels[j] : -props.MidPointsKernels[-j]));  // BEFORE
-                //const CalcType sum_x = abs(props.MidPointsMoments[x_shift] + (i > 0 ? props.MidPointsKernels[i] : props.MidPointsKernels[-i])); // AFTER
-                //const CalcType sum_y = abs(props.MidPointsMoments[y_shift] + (j > 0 ? props.MidPointsKernels[j] : props.MidPointsKernels[-j])); // AFTER
+                const CalcType sum_x = abs(params.MidPointsMoments[x_shift] + (i > 0 ? params.MidPointsKernels[i] : -params.MidPointsKernels[-i]));
+                const CalcType sum_y = abs(params.MidPointsMoments[y_shift] + (j > 0 ? params.MidPointsKernels[j] : -params.MidPointsKernels[-j]));
 
-                CalcType density = InterpolateDensity(C, props.MidPointsMoments, sum_x, sum_y, asymptotic);
+                CalcType density = InterpolateDensity(C, params.MidPointsMoments, sum_x, sum_y, asymptotic_value);
                 integral += kernels[abs(i)][abs(j)] * density;
             }
         }
-        integral *= pow(props.MidPointsKernelsWidth, 2);
+        integral *= pow(params.MidPointsKernelsWidth, 2);
         return integral;
     }
 
-    CalcType InterpolateDensity(Matrix density, Vector midPoints, CalcType x, CalcType y, CalcType asymptotic)
+    CalcType InterpolateDensity(Matrix density, Vector midPoints, CalcType x, CalcType y, CalcType asymptotic_value)
     {
-        assert(density.Cols() == midPoints.size());
         assert(density.Rows() == midPoints.size());
+        assert(density.Cols() == midPoints.size());
 
         if (x >= midPoints[midPoints.size() - 1] || y >= midPoints[midPoints.size() - 1]) 
-            return asymptotic;
+            return asymptotic_value;
+        assert(std::is_sorted(midPoints.begin(), midPoints.end()));
 
         // Find cell corned by mid-points
         const auto xMaxIt = std::upper_bound(midPoints.begin(), midPoints.end(), x);
@@ -359,13 +363,13 @@ private:
     }
 
 public:
-    Equation(Properties p) : props(p) {}
+    Equation(Properties a, Parameters b) : props(a), params(b) {}
 
     // Make Vector of equilibrium values for N (Vector) and C (Matrix of Matrix). Here C=N*N
     Vector GenerateEquilibriumValuesForNAndC(CalcType N_vals)
     {
-        int N_size = props.SpeciesCount;
-        int C_size = props.SpeciesCount * props.SpeciesCount * props.MidPointsMoments.size() * props.MidPointsMoments.size();
+        int N_size = props.SpeciesNumber;
+        int C_size = props.SpeciesNumber * props.SpeciesNumber * params.MidPointsMoments.size() * params.MidPointsMoments.size();
         Vector result(N_size + C_size);
         
         for (int i=0; i<N_size; i++)
@@ -379,46 +383,46 @@ public:
     // Start Calculations
     Vector operator () (CalcType times, Vector vals)
     {
-        N = vals.head(props.SpeciesCount);
-        vals.erase_first(props.SpeciesCount);
+        N = vals.head(props.SpeciesNumber);
+        vals.erase_first(props.SpeciesNumber);
         C = MakeC(vals);
 
-        Vector dN(props.SpeciesCount);                                  // Vector of derivatives of current first moments
-        MatrixOfMatrix dC(props.SpeciesCount, props.SpeciesCount);      // Derivatives of current second moments
+        Vector dN(props.SpeciesNumber);                                 // Vector of derivatives of current first moments
+        MatrixOfMatrix dC(props.SpeciesNumber, props.SpeciesNumber);    // Derivatives of current second moments
 
-        MatrixOfMatrix E1 = CalculateE1(C, N);                          // Integral of M and C
-        Matrix F3 = CalculateF3(C, N);                                  // Integral of W and C
+        Matrix WC = CalculateIntegralOfWAndC(C, N);                     // Integral of W and C
+        MatrixOfMatrix MC = CalculateIntegralOfMAndC(C, N);             // Integral of M and C
 
         //.......................................CALCULATE FIRST MOMENT
         dN = N * (props.b - props.d);                                   // Contribution of birth and death, density independent
         Vector dPrimeSum;                                               // Death contribution, density dependent
-        for(int j=0; j<props.SpeciesCount; j++)
-            dPrimeSum = dPrimeSum + props.d_prime.Col(j) * F3.Col(j);
+        for(int j=0; j<props.SpeciesNumber; j++)
+            dPrimeSum = dPrimeSum + props.d_prime.Col(j) * WC.Col(j);
         
         dN = dN - dPrimeSum;
 
         //.......................................CALCULATE SECOND MOMENT
-        for (int i=0; i<props.SpeciesCount; i++)
-            for (int j=0; j<props.SpeciesCount; j++)
+        for (int i=0; i<props.SpeciesNumber; i++)
+            for (int j=0; j<props.SpeciesNumber; j++)
             {
-                Matrix dC_elem(props.MidPointsMoments.size(), props.MidPointsMoments.size());
+                Matrix dC_elem(params.MidPointsMoments.size(), params.MidPointsMoments.size());
 
-                for (int xBin=0; xBin<props.MidPointsMoments.size(); xBin++)
-                    for (int yBin=0; yBin<props.MidPointsMoments.size(); yBin++)
+                for (int xBin=0; xBin<params.MidPointsMoments.size(); xBin++)
+                    for (int yBin=0; yBin<params.MidPointsMoments.size(); yBin++)
                     {
                         CalcType result;
 
                         // Birth contribution, density independent
-                        result = props.b[i] * E1(i, j)[xBin][yBin] + props.b[j] * E1(j, i)[xBin][yBin]; 
+                        result = props.b[i] * MC(i, j)[xBin][yBin] + props.b[j] * MC(j, i)[xBin][yBin]; 
 
                         // Birth contribution, Kronecker symbols
                         if (i == j)
                         {
                             result += 2 * props.b[i] * N[i] * InterpolateDensity(
                                 props.M(i),
-                                props.MidPointsKernels,
-                                props.MidPointsMoments[xBin],
-                                props.MidPointsMoments[yBin],
+                                params.MidPointsKernels,
+                                params.MidPointsMoments[xBin],
+                                params.MidPointsMoments[yBin],
                                 0
                             );
                         }
@@ -428,24 +432,24 @@ public:
                         result -= props.d[j] * C(j, i)[xBin][yBin];
 
                         // Simple closure
-                        for (int k=0; k<props.SpeciesCount; k++)
+                        for (int k=0; k<props.SpeciesNumber; k++)
                         {
-                            result -= props.d_prime[i][k] * C(i, j)[xBin][yBin] / N[i] * F3[i][k];
-                            result -= props.d_prime[j][k] * C(j, i)[xBin][yBin] / N[j] * F3[j][k];
+                            result -= props.d_prime[i][k] * C(i, j)[xBin][yBin] / N[i] * WC[i][k];
+                            result -= props.d_prime[j][k] * C(j, i)[xBin][yBin] / N[j] * WC[j][k];
                         }
                         
                         result -= props.d_prime[i][j] * C(i, j)[xBin][yBin] * InterpolateDensity(
                             props.W(i, j),
-                            props.MidPointsKernels,
-                            props.MidPointsMoments[xBin],
-                            props.MidPointsMoments[yBin],
+                            params.MidPointsKernels,
+                            params.MidPointsMoments[xBin],
+                            params.MidPointsMoments[yBin],
                             0
                         );
                         result -= props.d_prime[j][i] * C(j, i)[xBin][yBin] * InterpolateDensity(
                             props.W(j, i),
-                            props.MidPointsKernels,
-                            props.MidPointsMoments[xBin],
-                            props.MidPointsMoments[yBin],
+                            params.MidPointsKernels,
+                            params.MidPointsMoments[xBin],
+                            params.MidPointsMoments[yBin],
                             0
                         );
                         
@@ -471,6 +475,13 @@ struct SolverResults
     vector<CalcType> Times;                                             // Time points
     vector<Vector> Values;                                              // Values of the solution at time
     vector<Vector> Derivatives;                                         // Derivatives
+
+    void clear()                                                        // Clear solver results
+    {
+        Times.clear();
+        Values.clear();
+        Derivatives.clear();
+    }
 };
 
 
@@ -490,11 +501,12 @@ private:
     { solver_results.Derivatives.emplace_back(std::move(derivative)); }
 
 public:
-    SolverResults Solve(Equation func, CalcType time_max, CalcType step, Vector y_0, bool debug_enabled=0)
+    SolverResults Solve(Equation func, CalcType time_max, CalcType step, Vector y_0, bool debug_print_enabled = false)
     {
         CalcType t = 0;
         Vector y = y_0;
         
+        solver_results.clear();
         Add(y, t);
         while (t <= time_max)
         {
@@ -509,7 +521,7 @@ public:
             t += step;
             Add(y, t);
 
-            if (debug_enabled)
+            if (debug_print_enabled)
                 cout << "   t = " << t << ";   N = " << y[0] << '\n';
         }
 
@@ -535,11 +547,12 @@ private:
     { solver_results.Derivatives.emplace_back(std::move(derivative)); }
 
 public:
-    SolverResults Solve(Equation func, CalcType time_max, CalcType step, Vector y_0, bool debug_enabled=0)
+    SolverResults Solve(Equation func, CalcType time_max, CalcType step, Vector y_0, bool debug_print_enabled = false)
     {
         CalcType t = 0;
         Vector y = y_0;
         
+        solver_results.clear();
         Add(y, t);
         while (t <= time_max)
         {
@@ -562,7 +575,7 @@ public:
                     v = 0;
             Add(y, t);
 
-            if (debug_enabled)
+            if (debug_print_enabled)
                 cout << "   t = " << t << ";   N = " << y[0] << '\n';
         }
 
@@ -585,26 +598,12 @@ class FileReader
     ifstream file;
     string filename;
 
-    // Properties from file
-    int species;
-    
-    Matrix sW;
-    Vector sM;
-        
-    Vector b;
-    Vector d;
-    Matrix d_prime;
-
-    int mPoints;
-    CalcType mBinWidth;
-    int kPoints;
-    CalcType kBinWidth;
-
 private:
     CalcType GetValue()
     {
         string result;
         char new_symbol;
+        
         do
         { new_symbol = file.get(); }
         while ((!file.eof()) && (new_symbol == '\n'));
@@ -641,81 +640,100 @@ private:
         return matrix_from_file;
     }
 
+
 public:
     FileReader(string str) : filename(str) { file.open(filename); }
 
     ~FileReader() { file.close(); }
 
-    void GetFromFile()
+    Parameters GetParameters(bool debug_print_enabled = false)
     {
-        species = getInt();
+        int m_num = getInt();
+        CalcType m_width = getCalcType();
+        int k_num = getInt();
+        CalcType k_width = getCalcType();
+
+        if (debug_print_enabled)
+            cout << "\nCALCULATION PARAMETERS:"
+                 << "\n   Number of points for moments: " << m_num
+                 << "\n   Moments bin width: " << m_width
+                 << "\n   Number of points for kernels: " << k_num
+                 << "\n   Kernels bin width: " <<k_width
+                 << "\n\n";
+
+        return Parameters::Generate(m_num, m_width, k_num, k_width);
+    }
+
+    Properties GetProperties(Parameters params, bool debug_print_enabled = false)
+    {
+        int species = getInt();
     
-        sW = getMatrix(species, species);
-        //rW = getMatrix(species, species);
-        sM = getVector(species);
+        Matrix sW = getMatrix(species, species);
+        Vector sM = getVector(species);
         
-        b = getVector(species);
-        d = getVector(species);
-        d_prime = getMatrix(species, species);
+        Vector b = getVector(species);
+        Vector d = getVector(species);
+        Matrix dd = getMatrix(species, species);
 
-        mPoints = getInt();
-        mBinWidth = getCalcType();
-        kPoints = getInt();
-        kBinWidth = getCalcType();
+        if (debug_print_enabled)
+            cout << "MODEL PROPERTIES:\n"
+                 << "   Species number: " << species << '\n'
+                << "   Sigma W:  " << sW
+                << "   Sigma M:  " << sM
+                << "         b:  " << b
+                << "         d:  " << d
+                << "         d': " << dd
+                << "\n\n";
+        return Properties::Generate(species, sW, sM, b, d, dd, params);
     }
 
-    void GetWithoutSW(CalcType sigmaW)
+    Properties GetWithoutSigmaW(CalcType sigmaW, Parameters params, bool debug_print_enabled = false)
     {
-        species = getInt();
+        int species = getInt();
     
-        sW = Matrix(species, species, sigmaW);
-        sM = getVector(species);
+        Matrix sW = Matrix(species, species, sigmaW);
+        Vector sM = getVector(species);
         
-        b = getVector(species);
-        d = getVector(species);
-        d_prime = getMatrix(species, species);
+        Vector b = getVector(species);
+        Vector d = getVector(species);
+        Matrix dd = getMatrix(species, species);
 
-        mPoints = getInt();
-        mBinWidth = getCalcType();
-        kPoints = getInt();
-        kBinWidth = getCalcType();
+        if (debug_print_enabled)
+            cout << "MODEL PROPERTIES:\n"
+                 << "   Species number: " << species << '\n'
+                << "   Sigma W:  " << sW
+                << "   Sigma M:  " << sM
+                << "         b:  " << b
+                << "         d:  " << d
+                << "         d': " << dd
+                << "\n\n";
+
+        return Properties::Generate(species, sW, sM, b, d, dd, params);
     }
 
-    void GetWithoutSM(CalcType sigmaM)
+    Properties GetWithoutSigmaM(CalcType sigmaM, Parameters params, bool debug_print_enabled = false)
     {
-        species = getInt();
+        int species = getInt();
     
-        sW = getMatrix(species, species);
-        sM = Vector(species, sigmaM);
+        Matrix sW = getMatrix(species, species);
+        Vector sM = Vector(species, sigmaM);
         
-        b = getVector(species);
-        d = getVector(species);
-        d_prime = getMatrix(species, species);
+        Vector b = getVector(species);
+        Vector d = getVector(species);
+        Matrix dd = getMatrix(species, species);
 
-        mPoints = getInt();
-        mBinWidth = getCalcType();
-        kPoints = getInt();
-        kBinWidth = getCalcType();
+        if (debug_print_enabled)
+            cout << "MODEL PROPERTIES:\n"
+                 << "   Species number: " << species << '\n'
+                << "   Sigma W:  " << sW
+                << "   Sigma M:  " << sM
+                << "         b:  " << b
+                << "         d:  " << d
+                << "         d': " << dd
+                << "\n\n";
+        
+        return Properties::Generate(species, sW, sM, b, d, dd, params);
     }
-
-    void PrintResults()
-    {
-        cout << "Species count = " << species << '\n';
-        cout << "Sigma W:  " << sW;
-        cout << "W radius: " << sW * 3;
-        cout << "Sigma M:  " << sM;
-        cout << "M radius: " << sM * 3;
-        cout << "      b:  " << b;
-        cout << "      d:  " << d;
-        cout << "      d': " << d_prime;
-        cout << "Moments points = " << mPoints << '\n';
-        cout << "Moments bin width = " << mBinWidth << '\n';
-        cout << "Kernels points = " << kPoints << '\n';
-        cout << "Kernels bin width = " <<kBinWidth << "\n\n";
-    }
-
-    Properties MakeProperties()
-    { return GenerateProperties(species, sW, sM, b, d, d_prime, mPoints, mBinWidth, kPoints, kBinWidth, Normal, Normal); }
 };
 
 
@@ -755,13 +773,21 @@ public:
 //_____________________________________________________EXPERIMENTS_________________________________________________________
 class Experiments
 {
+    Parameters Params;
     vector<Properties> PropsVector;
     string reader_path;
     string writer_path;
     string vdata_path;
-    bool enable_debug;
+    bool enable_debug_print;
 
 private:
+    // Read calculation parameters from "Parameters.txt"
+    void ReadParams()
+    {
+        FileReader params_reader("Data\\Parameters.txt");
+        Params = params_reader.GetParameters(enable_debug_print = true);
+    }
+
     // Comparator for sorting vector of Solver Results
     static bool SortBySigma(const pair<CalcType, SolverResults> &a, const pair<CalcType, SolverResults> &b)
     { return (a.first < b.first); }
@@ -780,20 +806,20 @@ private:
         return make_tuple(to_string(hours), str_minutes, str_seconds);
     }
 
+    // Calculate first moment
     SolverResults CalculateFirstMoment(CalcType t_max)
     {
         FileReader Reader(reader_path);
-        Reader.GetFromFile();
-        Reader.PrintResults();
-        
-        auto props = Reader.MakeProperties();
-        Equation equation(props);   
+        ReadParams();
+
+        auto Props = Reader.GetProperties(Params, enable_debug_print = true);
+        Equation equation(Props, Params);   
         EulerSolver solver;
 
         cout << "\n==========================CALCULATIONS START==========================\n";
         clock_t Start = clock();
         
-        SolverResults result = solver.Solve(equation, t_max, 0.1, equation.GenerateEquilibriumValuesForNAndC(200), enable_debug=1);
+        SolverResults result = solver.Solve(equation, t_max, 0.1, equation.GenerateEquilibriumValuesForNAndC(200), enable_debug_print = true);
         
         clock_t End = clock();
         cout << "\n===========================CALCULATIONS END===========================\n";
@@ -804,28 +830,27 @@ private:
         return result;
     }
 
+    // Calculate first moment with varying sigma (sM or sW)
     vector<SolverResults> CalculateWithVaryingSigma(CalcType t_max, char SigmaType, Vector SigmaVec)
     {
         vector<pair<CalcType, SolverResults>> SigmasAndResults;
-
+        ReadParams();
         for (int i=0; i<SigmaVec.size(); i++)
         {
             FileReader Reader(reader_path);
+            cout << "ENTRY " << i << ":\n";
             switch(SigmaType)
             {
                 case 'W':
-                    Reader.GetWithoutSW(SigmaVec[i]);
+                    PropsVector.push_back(Reader.GetWithoutSigmaW(SigmaVec[i], Params, enable_debug_print = true));
                     break;
                 case 'M':
-                    Reader.GetWithoutSM(SigmaVec[i]);
+                    PropsVector.push_back(Reader.GetWithoutSigmaM(SigmaVec[i], Params, enable_debug_print = true));
                     break;
                 default:
                     cerr << "===============================ERROR!!!===============================\n" << endl;
                     break;
             }
-            cout << i << '\n';
-            Reader.PrintResults();
-            PropsVector.push_back(Reader.MakeProperties());
         }
 
         cout << "\n==========================CALCULATIONS START==========================\n";
@@ -837,10 +862,10 @@ private:
             cout << "THREAD " << omp_get_thread_num() << ":     ENTRY " << i << ": START\n";
             
             auto new_props = PropsVector.at(i);
-            Equation equation(new_props);
+            Equation equation(new_props, Params);
             EulerSolver solver;
 
-            auto new_result = solver.Solve(equation, t_max, 0.1, equation.GenerateEquilibriumValuesForNAndC(200));
+            auto new_result = solver.Solve(equation, t_max, 0.1, equation.GenerateEquilibriumValuesForNAndC(200), enable_debug_print = true);
             SigmasAndResults.push_back(make_pair(SigmaVec[i], new_result));
             
             cout << "THREAD " << omp_get_thread_num() << ":     ENTRY " << i << ": FINISH\n";
@@ -858,6 +883,8 @@ private:
         return results;
     }
 
+    // Launch Visualiser.py 
+    // !! WORKS ONLY ON WINDOWS !!
     void Visualise_Windows() { WinExec("python Visualiser.py", 1); }
 
 public:
@@ -901,13 +928,11 @@ public:
             reader_path = "Data\\14.6\\b.txt";
 
         PropsVector.clear();
-        Vector SigmaVec;
-        int SigmaVecNodes = 200;
-        SigmaVec.setLinSpaced(SigmaVecNodes, 0.00000001, 0.2);
+        Vector SigmaVec = Vector::setLinSpaced(160, 0.00000001, 0.2);
         
-        vector<SolverResults> solverResults = CalculateWithVaryingSigma(500, SigmaType, SigmaVec);
+        vector<SolverResults> solverResults = CalculateWithVaryingSigma(300, SigmaType, SigmaVec);
         vector<CalcType> ConvergedNVec;
-
+        
         for (auto Result : solverResults)
         {
             auto FinalValue = Result.Values.at(Result.Values.size()-1);
@@ -984,5 +1009,6 @@ int main()
         }
     }
     system("cls");
+
     return 0;
 }

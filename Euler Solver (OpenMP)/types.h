@@ -73,13 +73,35 @@ public:
     }
 
     //....................Sets a linearly spaced Vector
-    void setLinSpaced(CalcType num, CalcType min_val, CalcType max_val)
+    static Vector setLinSpaced(CalcType num, CalcType min_val, CalcType max_val)
     {
-        vec.resize(num);
+        Vector result;
         CalcType step = (max_val - min_val) / (num - 1);
 
         for (int i=0; i<num; i++)
-            vec.at(i) = min_val + i * step;
+            result.add(min_val + i * step);
+
+        return result;
+    }
+
+    //....................Natural logarith for vector
+    static Vector log(Vector arg)
+    {
+        Vector result;
+        for (int i=0; i<arg.size(); i++)
+            result.add(std::log(arg[i]));
+        
+        return result;
+    }
+
+    //....................Absolute value for vector
+    static Vector abs(Vector arg)
+    {
+        Vector result;
+        for (int i=0; i<arg.size(); i++)
+            result.add(std::abs(arg[i]));
+
+        return result;
     }
 
     //....................Vector + calculation type value
@@ -355,25 +377,3 @@ public:
     //....................Returns numbers of columns in Matrix of Matrix
     int Cols() { return matofmat.at(0).size(); }
 };
-
-
-//________________________________NATURAL LOGARITHM FOR VECTOR_________________________________
-Vector VectorLog(Vector arg)
-{
-    Vector result;
-    for (int i=0; i<arg.size(); i++)
-        result.add(std::log(arg[i]));
-    
-    return result;
-}
-
-
-//_________________________________ABSOLUTE VALUE FOR VECTOR___________________________________
-Vector VectorAbs(Vector arg)
-{
-    Vector result;
-    for (int i=0; i<arg.size(); i++)
-        result.add(std::abs(arg[i]));
-
-    return result;
-}

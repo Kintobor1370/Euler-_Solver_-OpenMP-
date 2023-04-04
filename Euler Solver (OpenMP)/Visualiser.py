@@ -16,10 +16,11 @@ y = np.fromfile(file, "d", size, "\n")
 eq = np.full(size, 200)
 
 plt.plot(x, y)
-plt.ylim(0, 400)
 plt.xlabel(xLabel)
 plt.ylabel(yLabel)
+plt.ylim(0, 350)
 if ExperimentNumber == 14.6:
+    plt.ylim(0, 400)
     plt.plot(x, eq, linestyle = '--', color = 'grey')
 
 print("\n============================PLOT CREATED!=============================\n")
