@@ -1,0 +1,4 @@
+# Command promt:
+    g++ Solver.cpp -fopenmp -O3
+    a.exe
+    
