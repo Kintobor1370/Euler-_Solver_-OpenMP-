@@ -10,7 +10,7 @@ HOW TO COMPILE THE PROGRAMS:
 
 1. Before compiling, navigate to the main body of Solver.cpp and uncomment the experiment of your choice.
 2. Launch command promt from the folder containing the programs.
-3. Input following lines:
+3. Input the following lines:
 ```
 g++ Solver.cpp -fopenmp -O3
 ```
