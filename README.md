@@ -9,7 +9,7 @@ _Tested on Windows 10._
 HOW TO COMPILE THE PROGRAMS:
 
 1. Launch command promt from the folder containing the programs.
-2. Input following lines:
+2. Input the following lines:
 ```
 g++ Solver.cpp -fopenmp -O3
 ```
