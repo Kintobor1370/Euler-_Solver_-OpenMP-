@@ -16,7 +16,9 @@ g++ Solver.cpp -fopenmp -O3
 ```
 ```
 ./a.out
-```This will start the experiment of your choice.
+```
+
+This will start the experiment of your choice.
 4. Input the following line:
 ```
 python Visualiser.py
