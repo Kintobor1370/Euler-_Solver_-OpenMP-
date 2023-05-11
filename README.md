@@ -10,10 +10,16 @@ HOW TO COMPILE THE PROGRAMS:
 
 1. Before compiling, navigate to the main body of Solver.cpp and uncomment the experiment of your choice.
 2. Launch command promt from the folder containing the programs.
-3. Input the following lines:
+3. Input the following line:
 ```
 g++ Solver.cpp -fopenmp -O3
 ```
 ```
 ./a.out
 ```
+This will start the experiment of your choice.
+4. Input the following line:
+```
+python Visualiser.py
+```
+This will draw a plot based on the results of a finished experiment.
