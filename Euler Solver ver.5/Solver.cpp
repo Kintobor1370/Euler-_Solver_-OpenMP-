@@ -119,33 +119,33 @@ struct Properties
     VectorOfMatrix M;                                                   // Rate of birth-movement of species i to distance (x,y)  (m(x))
     MatrixOfMatrix W;                                                   // Death-weighting for neighbours j of species i at distance (x,y)  (w(x))
 
-    Matrix WMaxBin;                                                     // Maximum number of bins over which species i d-interacts with species j
-    Vector MMaxBin;                                                     // Maximum number of bins over which birth-movement of species i
+    Matrix MaxNumForW;                                                  // Maximum number of non-zero bins for 'w' kernel
+    Vector MaxNumForM;                                                  // Maximum number of non-zero bins for 'm' kernel
 
     Vector SigmaM;
     Matrix SigmaW;
 
+    Vector MomentsGrid;                                                 // The non-uniform grid that corresponds to pair densities
     CalcType CutoffDistance;                                            // The largest distance between two individuals for which we compute the pair density
-    Vector MidPointsKernels;                                            // The mid-points of bins that correspond to kernels indices
-    CalcType MidPointsKernelsWidth;
-    Vector MidPointsMoments;                                            // The mid-points of bins that correspond to second moments indices
+    Vector KernelsGrid;                                                 // The uniform grid that corresponds to kernels
+    CalcType KernelsGridStep;                                           // The step of uniform grid for kernels
 
-    //..............................GENERATE CALCULATION PARAMETERS
-    void GenerateParameters(CalcType sigma_w, CalcType sigma_m)
+    //..............................GENERATE GRIDS FOR KERNELS AND PAIR DENSITIES
+    void GenerateGrids(CalcType sigma_w, CalcType sigma_m)
     {
         CalcType cutoff_distance = (sigma_w + sigma_m) * 3;
         CalcType max_radius = std::max(sigma_w, sigma_m) * 3;
 
         int num_for_moments = 5;
-        auto moments_partition = Vector::abs(-Vector::log(-Vector::setLinSpaced(num_for_moments, 0, num_for_moments - 1) / num_for_moments + 1) * 0.01 * num_for_moments);
-        while (moments_partition.last() < cutoff_distance - 0.01)
+        auto moments_grid = Vector::abs(-Vector::log(-Vector::setLinSpaced(num_for_moments, 0, num_for_moments - 1) / num_for_moments + 1) * 0.01 * num_for_moments);
+        while (moments_grid.last() < cutoff_distance - 0.01)
         {
             num_for_moments++;
-            moments_partition = Vector::abs(-Vector::log(-Vector::setLinSpaced(num_for_moments, 0, num_for_moments - 1) / num_for_moments + 1) * 0.01 * num_for_moments);
+            moments_grid = Vector::abs(-Vector::log(-Vector::setLinSpaced(num_for_moments, 0, num_for_moments - 1) / num_for_moments + 1) * 0.01 * num_for_moments);
         }
-        CalcType parameter = cutoff_distance / moments_partition.last();
-        moments_partition = moments_partition * parameter;
-        assert(std::abs(moments_partition.last() - cutoff_distance) < 1e-08);
+        CalcType parameter = cutoff_distance / moments_grid.last();
+        moments_grid = moments_grid * parameter;
+        assert(std::abs(moments_grid.last() - cutoff_distance) < 1e-08);
 
         int num_for_kernels = (num_for_moments - 1) * 2 - 1;
         if (std::min(sigma_w, sigma_m) < 0.015)
@@ -155,12 +155,12 @@ struct Properties
         }
         cout << "moments: " << num_for_moments << "\nkernels: " << num_for_kernels << "\n\n";
         assert((num_for_kernels % 2 == 1) && (num_for_kernels >= 5));
-        auto kernels_partition = Vector::setLinSpaced(num_for_kernels, 0, max_radius);
+        auto kernels_grid = Vector::setLinSpaced(num_for_kernels, 0, max_radius);
 
-        CutoffDistance  = moments_partition.last();
-        MidPointsMoments = moments_partition;
-        MidPointsKernels = kernels_partition;
-        MidPointsKernelsWidth = kernels_partition[2] - kernels_partition[0];
+        CutoffDistance  = moments_grid.last();
+        MomentsGrid = moments_grid;
+        KernelsGrid = kernels_grid;
+        KernelsGridStep = kernels_grid[2] - kernels_grid[0];
     }
 
     //..............................GENERATE KERNEL
@@ -169,19 +169,18 @@ struct Properties
         CalcType R,                                                     // Max radius 
         KernelType type
     ) {
-        Vector m = MidPointsKernels;
-        CalcType width = MidPointsKernelsWidth;
+        Vector grid = KernelsGrid;
+        CalcType step = KernelsGridStep;
 
-        Matrix result(m.size(), m.size());
-        Vector m_square = m * m;
+        Matrix result(grid.size(), grid.size());
         int max_non_zero_num = 0; 
 
         // Calculate
-        for (int x=0; x<m.size(); x++)
+        for (int x=0; x<grid.size(); x++)
         {
-            for (int y=0; y<m.size(); y++)
+            for (int y=0; y<grid.size(); y++)
             {
-                const auto r = std::hypot(m[x], m[y]);
+                const auto r = std::hypot(grid[x], grid[y]);
                 if(r <= R)
                 {
                     switch (type)
@@ -198,7 +197,7 @@ struct Properties
                 else result[x][y] = 0;
             }
         }
-        if (m.size() % 2 == 1 && max_non_zero_num % 2 == 0 && max_non_zero_num != 2) max_non_zero_num++;
+        if (grid.size() % 2 == 1 && max_non_zero_num % 2 == 0 && max_non_zero_num != 2) max_non_zero_num++;
         if (max_non_zero_num == 1) max_non_zero_num = 2;
 
         // Renormalize
@@ -210,7 +209,7 @@ struct Properties
         if (integral == 0)
             cout << result << "\n\n";
         assert(integral != 0);
-        integral *= width * width;
+        integral *= step * step;
         result = result / integral;
 
         return make_pair(result, max_non_zero_num);
@@ -226,11 +225,11 @@ struct Properties
                 cout << "      W_" << i + 1 << "_" << j + 1 << ": integral = ";
                 
                 CalcType integral = 0;
-                for (int x=1-WMaxBin[i][j]; x<WMaxBin[i][j]-1; x+=2)
-                    for (int y=1-WMaxBin[i][j]; y<WMaxBin[i][j]-1; y+=2)
+                for (int x=1-MaxNumForW[i][j]; x<MaxNumForW[i][j]-1; x+=2)
+                    for (int y=1-MaxNumForW[i][j]; y<MaxNumForW[i][j]-1; y+=2)
                         integral += W(i, j)[abs(x + 1)][abs(y + 1)];
                 
-                integral *= std::pow(MidPointsKernelsWidth, 2);
+                integral *= std::pow(KernelsGridStep, 2);
                 cout << integral;
                 assert((integral < 1.00000001) && (integral > 0.999999999));
                 cout << ".  Cool!!\n";
@@ -242,11 +241,11 @@ struct Properties
             cout << "      M_" << i + 1 << ":   integral = ";
                 
             CalcType integral = 0;
-            for (int x=1-MMaxBin[i]; x<MMaxBin[i]-1; x+=2)
-                for (int y=1-MMaxBin[i]; y<MMaxBin[i]-1; y+=2)
+            for (int x=1-MaxNumForM[i]; x<MaxNumForM[i]-1; x+=2)
+                for (int y=1-MaxNumForM[i]; y<MaxNumForM[i]-1; y+=2)
                     integral += M(i)[abs(x + 1)][abs(y + 1)];
                 
-            integral *= std::pow(MidPointsKernelsWidth, 2);
+            integral *= std::pow(KernelsGridStep, 2);
             cout << integral;
             assert((integral < 1.00000001) && (integral > 0.999999999));
             cout << ".  Cool!!\n";
@@ -272,10 +271,10 @@ struct Properties
         props.b = b;
         props.d = d;
         props.d_prime = dd;
-        props.GenerateParameters(sW.max_value(), sM.max_value());
+        props.GenerateGrids(sW.max_value(), sM.max_value());
 
         MatrixOfMatrix w(num, num);
-        Matrix w_max_bin(num, num);
+        Matrix max_num_w(num, num);
         
         Matrix max_radius_W;
         if (w_type == Normal)
@@ -287,12 +286,12 @@ struct Properties
             {
                 auto kernel_W = props.GenerateKernel(sW[i][j], max_radius_W[i][j], w_type);
                 w(i, j) = kernel_W.first;
-                w_max_bin[i][j] = kernel_W.second;
+                max_num_w[i][j] = kernel_W.second;
             }
         }    
 
         VectorOfMatrix m(num);
-        Vector m_max_bin(num);
+        Vector max_num_m(num);
         
         Vector max_radius_M;
         if (m_type == Normal)
@@ -302,13 +301,13 @@ struct Properties
         {
             auto kernel_M = props.GenerateKernel(sM[i], max_radius_M[i], m_type);
             m(i) = kernel_M.first;
-            m_max_bin[i] = kernel_M.second;
+            max_num_m[i] = kernel_M.second;
         }
 
         props.M = m;
         props.W = w;
-        props.WMaxBin = w_max_bin;
-        props.MMaxBin = m_max_bin;
+        props.MaxNumForW = max_num_w;
+        props.MaxNumForM = max_num_m;
         return props;
     }
 };
@@ -325,9 +324,9 @@ private:
     // Make C (Matrix of Matrix) from Vector of values
     MatrixOfMatrix MakeC(Vector C_vals)
     {
-        assert(C_vals.size() == props.SpeciesNumber * props.SpeciesNumber * props.MidPointsMoments.size() * props.MidPointsMoments.size());
+        assert(C_vals.size() == props.SpeciesNumber * props.SpeciesNumber * props.MomentsGrid.size() * props.MomentsGrid.size());
 
-        auto result = VectorToMatrixOfMatrix(C_vals, props.SpeciesNumber, props.MidPointsMoments.size());
+        auto result = VectorToMatrixOfMatrix(C_vals, props.SpeciesNumber, props.MomentsGrid.size());
         return result;
     }
 
@@ -337,7 +336,7 @@ private:
         Vector result = N;
         Vector C_To_Vector = MatrixOfMatrixToVector(C);
         assert(result.size() == props.SpeciesNumber);
-        assert(C_To_Vector.size() == props.SpeciesNumber * props.SpeciesNumber * props.MidPointsMoments.size() * props.MidPointsMoments.size());
+        assert(C_To_Vector.size() == props.SpeciesNumber * props.SpeciesNumber * props.MomentsGrid.size() * props.MomentsGrid.size());
         
         result.add(C_To_Vector);
         return result;
@@ -350,7 +349,7 @@ private:
 
         for (int i=0; i<props.SpeciesNumber; i++) 
             for (int j=0; j<props.SpeciesNumber; j++)
-                result[i][j] = MakeIntegralWithPairDensity(0, 0, props.WMaxBin[i][j], props.W(i, j), C(i, j), N[i] * N[j]);
+                result[i][j] = MakeIntegralWithPairDensity(0, 0, props.MaxNumForW[i][j], props.W(i, j), C(i, j), N[i] * N[j]);
 
         return result;
     }
@@ -364,11 +363,11 @@ private:
         {
             for (int j=0; j<props.SpeciesNumber; j++)
             {
-                Matrix result_elem(props.MidPointsMoments.size(), props.MidPointsMoments.size());
+                Matrix result_elem(props.MomentsGrid.size(), props.MomentsGrid.size());
 
-                for (int x_num=0; x_num<props.MidPointsMoments.size(); x_num++)
-                    for (int y_num=0; y_num<props.MidPointsMoments.size(); y_num++)
-                        result_elem[x_num][y_num] = MakeIntegralWithPairDensity(x_num, y_num, props.MMaxBin[i], props.M(i), C(i, j), N[i] * N[j]);
+                for (int x_num=0; x_num<props.MomentsGrid.size(); x_num++)
+                    for (int y_num=0; y_num<props.MomentsGrid.size(); y_num++)
+                        result_elem[x_num][y_num] = MakeIntegralWithPairDensity(x_num, y_num, props.MaxNumForM[i], props.M(i), C(i, j), N[i] * N[j]);
 
                 result(i, j) = result_elem;
             }
@@ -376,25 +375,24 @@ private:
         return result;
     }
 
-    CalcType MakeIntegralWithPairDensity(int x_shift, int y_shift, int bin, Matrix kernel, Matrix C, CalcType asymptotic_value)
+    CalcType MakeIntegralWithPairDensity(int x_shift, int y_shift, int max_non_zero_num, Matrix kernel, Matrix C, CalcType asymptotic_value)
     {
-        Vector m = props.MidPointsKernels;
         CalcType integral = 0;
-        for (int i=1-bin; i<bin-1; i+=2)
+        for (int i=1-max_non_zero_num; i<max_non_zero_num-1; i+=2)
         {
-            for (int j=1-bin; j<bin-1; j+=2)
+            for (int j=1-max_non_zero_num; j<max_non_zero_num-1; j+=2)
             {
-                assert(i + 1 < bin);
-                assert(j + 1 < bin);
+                assert(i + 1 < max_non_zero_num);
+                assert(j + 1 < max_non_zero_num);
 
-                const CalcType sum_x = abs(props.MidPointsMoments[x_shift] + (i >= 0 ? props.MidPointsKernels[i+1] : -props.MidPointsKernels[-i-1]));
-                const CalcType sum_y = abs(props.MidPointsMoments[y_shift] + (j >= 0 ? props.MidPointsKernels[j+1] : -props.MidPointsKernels[-j-1]));
+                const CalcType sum_x = abs(props.MomentsGrid[x_shift] + (i >= 0 ? props.KernelsGrid[i+1] : -props.KernelsGrid[-i-1]));
+                const CalcType sum_y = abs(props.MomentsGrid[y_shift] + (j >= 0 ? props.KernelsGrid[j+1] : -props.KernelsGrid[-j-1]));
 
-                auto pair_density = BilinearInterpolation(C, props.MidPointsMoments, sum_x, sum_y, props.CutoffDistance, asymptotic_value);
+                auto pair_density = BilinearInterpolation(C, props.MomentsGrid, sum_x, sum_y, props.CutoffDistance, asymptotic_value);
                 integral += kernel[abs(i + 1)][abs(j + 1)] * pair_density;
             }
         }
-        integral *= pow(props.MidPointsKernelsWidth, 2);
+        integral *= pow(props.KernelsGridStep, 2);
         return integral;
     }
 
@@ -436,7 +434,7 @@ public:
     Vector GenerateEquilibriumValuesForNAndC(CalcType value)
     {
         int N_size = props.SpeciesNumber;
-        int C_size = props.SpeciesNumber * props.SpeciesNumber * props.MidPointsMoments.size() * props.MidPointsMoments.size();
+        int C_size = props.SpeciesNumber * props.SpeciesNumber * props.MomentsGrid.size() * props.MomentsGrid.size();
         Vector result(N_size + C_size);
         
         for (int i=0; i<N_size; i++)
@@ -472,10 +470,10 @@ public:
         for (int i=0; i<props.SpeciesNumber; i++)
             for (int j=0; j<props.SpeciesNumber; j++)
             {
-                Matrix dC_elem(props.MidPointsMoments.size(), props.MidPointsMoments.size());
+                Matrix dC_elem(props.MomentsGrid.size(), props.MomentsGrid.size());
 
-                for (int x_num=0; x_num<props.MidPointsMoments.size(); x_num++)
-                    for (int y_num=0; y_num<props.MidPointsMoments.size(); y_num++)
+                for (int x_num=0; x_num<props.MomentsGrid.size(); x_num++)
+                    for (int y_num=0; y_num<props.MomentsGrid.size(); y_num++)
                     {
                         // Birth contribution, density independent
                         CalcType result = props.b[i] * MC(i, j)[x_num][y_num] + props.b[j] * MC(j, i)[x_num][y_num]; 
@@ -485,9 +483,9 @@ public:
                         {
                             result += 2 * props.b[i] * N[i] * BilinearInterpolation(
                                 props.M(i),
-                                props.MidPointsKernels,
-                                props.MidPointsMoments[x_num],
-                                props.MidPointsMoments[y_num],
+                                props.KernelsGrid,
+                                props.MomentsGrid[x_num],
+                                props.MomentsGrid[y_num],
                                 props.SigmaM[i] * 3,
                                 0
                             );
@@ -506,17 +504,17 @@ public:
                         
                         result -= props.d_prime[i][j] * C(i, j)[x_num][y_num] * BilinearInterpolation(
                             props.W(i, j),
-                            props.MidPointsKernels,
-                            props.MidPointsMoments[x_num],
-                            props.MidPointsMoments[y_num],
+                            props.KernelsGrid,
+                            props.MomentsGrid[x_num],
+                            props.MomentsGrid[y_num],
                             props.SigmaW[i][j] * 3,
                             0
                         );
                         result -= props.d_prime[j][i] * C(j, i)[x_num][y_num] * BilinearInterpolation(
                             props.W(j, i),
-                            props.MidPointsKernels,
-                            props.MidPointsMoments[x_num],
-                            props.MidPointsMoments[y_num],
+                            props.KernelsGrid,
+                            props.MomentsGrid[x_num],
+                            props.MomentsGrid[y_num],
                             props.SigmaW[j][i] * 3,
                             0
                         );
@@ -921,17 +919,17 @@ private:
         ConvergedNAndC.erase_first(1);
         Vector C_vals = ConvergedNAndC;
         
-        auto C = VectorToMatrixOfMatrix(C_vals, 1, Props.MidPointsMoments.size());
+        auto C = VectorToMatrixOfMatrix(C_vals, 1, Props.MomentsGrid.size());
         vector<pair<CalcType, CalcType>> C_r;
         bool unique;
 
-        cout << Props.MidPointsMoments.size() << "\n\n";
-        for (int x=0; x<Props.MidPointsMoments.size(); x++)
+        cout << Props.MomentsGrid.size() << "\n\n";
+        for (int x=0; x<Props.MomentsGrid.size(); x++)
         {
-            for (int y=0; y<Props.MidPointsMoments.size(); y++)
+            for (int y=0; y<Props.MomentsGrid.size(); y++)
             {
                 unique = true;
-                CalcType r = std::hypot(Props.MidPointsMoments[x], Props.MidPointsMoments[y]);
+                CalcType r = std::hypot(Props.MomentsGrid[x], Props.MomentsGrid[y]);
                 cout << "HERE1\n";
                 for (auto item : C_r)
                 {
@@ -996,7 +994,7 @@ public:
             CalcType N_value = Values.first();
             N.add(N_value);
             
-            CalcType C_at_cutoff_distance = Values[Props.MidPointsMoments.size()];
+            CalcType C_at_cutoff_distance = Values[Props.MomentsGrid.size()];
             CSquareRoot.add(std::sqrt(C_at_cutoff_distance));
         }
         Vector result = N;
@@ -1031,7 +1029,7 @@ public:
             CalcType converged_N_value = converged_N_and_C.first();
             ConvergedN.add(converged_N_value);
 
-            CalcType converged_C_at_cutoff_distance = converged_N_and_C[PropsVector[i].MidPointsMoments.size()];
+            CalcType converged_C_at_cutoff_distance = converged_N_and_C[PropsVector[i].MomentsGrid.size()];
             ConvergedCSquareRoot.add(std::sqrt(converged_C_at_cutoff_distance));
         }
         Vector result = ConvergedN;
@@ -1046,7 +1044,7 @@ public:
     {
         PropsVector.clear();
         reader_file_path = "Data\\Custom\\experiment.txt";
-        SolverResults Results = CalculateFirstMoment(200);
+        SolverResults Results = CalculateFirstMoment(300);
     
         Vector N;
         Vector CSquareRoot;
@@ -1055,7 +1053,7 @@ public:
             CalcType N_value = Values.first();
             N.add(N_value);
 
-            CalcType C_at_cutoff_distance = Values[Props.MidPointsMoments.size()];
+            CalcType C_at_cutoff_distance = Values[Props.MomentsGrid.size()];
             CSquareRoot.add(std::sqrt(C_at_cutoff_distance));
         }
         Vector result = N;
@@ -1077,15 +1075,15 @@ public:
         vector<pair<CalcType, CalcType>> result;
         bool unique;
 
-        for (int x=0; x<Props.MidPointsKernels.size(); x++)
+        for (int x=0; x<Props.KernelsGrid.size(); x++)
         {
-            for (int y=0; y<Props.MidPointsKernels.size(); y++)
+            for (int y=0; y<Props.KernelsGrid.size(); y++)
             {
                 unique = true;
-                CalcType r = std::hypot(Props.MidPointsKernels[x], Props.MidPointsKernels[y]);
+                CalcType r = std::hypot(Props.KernelsGrid[x], Props.KernelsGrid[y]);
                 for (auto item : result)
                 {
-                    cout << "x = " << Props.MidPointsKernels[x] << "    y = " << Props.MidPointsKernels[y] << "     r = " << r << "    kernel = " << kernel[x][y] << '\n';
+                    cout << "x = " << Props.KernelsGrid[x] << "    y = " << Props.KernelsGrid[y] << "     r = " << r << "    kernel = " << kernel[x][y] << '\n';
                     if (r == item.first)
                         unique = false;
                 }
@@ -1102,8 +1100,8 @@ public:
             x.push_back(item.first);
             y.push_back(item.second);
         }
-        cout << "MAX BIN = " << Props.WMaxBin << '\n';
-        //cout << "MAX BIN = " << Props.MMaxBin << '\n';
+        cout << "MAX NON-ZERO NUMBERS: " << Props.MaxNumForW << '\n';
+        //cout << "MAX NON-ZERO NUMBERS: " << Props.MaxNumForM << '\n';
         FileWriter VisData(visdata_path);
         VisData.WritePlotData("14.4", "Kernel test", "x", "distribution", x, y);
         Visualise_Windows();
