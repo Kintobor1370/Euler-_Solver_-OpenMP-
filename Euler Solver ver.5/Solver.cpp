@@ -231,7 +231,7 @@ struct Properties
                 
                 integral *= std::pow(KernelsGridStep, 2);
                 cout << integral;
-                assert((integral < 1.00000001) && (integral > 0.999999999));
+                assert(std::abs(integral - 1) < 1e-08);
                 cout << ".  Cool!!\n";
             }
         }
@@ -247,7 +247,7 @@ struct Properties
                 
             integral *= std::pow(KernelsGridStep, 2);
             cout << integral;
-            assert((integral < 1.00000001) && (integral > 0.999999999));
+            assert(std::abs(integral - 1) < 1e-08);
             cout << ".  Cool!!\n";
         }
         cout << "    Check complete!\n\n";
