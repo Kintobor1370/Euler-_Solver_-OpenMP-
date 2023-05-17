@@ -883,7 +883,7 @@ private:
         cout << "\n==========================CALCULATIONS START==========================\n";
         clock_t Start = clock();
 
-        #pragma omp parallel for default(none) shared(t_max, SigmaVec, SigmasAndResults, done_iterations, cout)
+        #pragma omp parallel for default(none) shared(t_max, SigmaVec, SigmasAndResults, print_lock, done_iterations, cout)
         for (int i=0; i<SigmaVec.size(); i++)
         {
             auto thread_num = omp_get_thread_num();
