@@ -228,7 +228,8 @@ struct Properties
                     for (int y=1-MaxNumForW[i][j]; y<MaxNumForW[i][j]-1; y+=2)
                         integral += W(i, j)[abs(x + 1)][abs(y + 1)];
                 
-                integral *= std::pow(KernelsGridStep, 2);
+                assert(integral != 0);
+		integral *= std::pow(KernelsGridStep, 2);
                 cout << integral;
                 assert(std::abs(integral - 1) < 1e-08);
                 cout << ".  Cool!!\n";
@@ -246,7 +247,8 @@ struct Properties
                 for (int y=1-MaxNumForM[i]; y<MaxNumForM[i]-1; y+=2)
                     integral += M(i)[abs(x + 1)][abs(y + 1)];
                 
-            integral *= std::pow(KernelsGridStep, 2);
+            assert(integral != 0);
+	    integral *= std::pow(KernelsGridStep, 2);
             cout << integral;
             assert(std::abs(integral - 1) < 1e-08);
             cout << ".  Cool!!\n";
