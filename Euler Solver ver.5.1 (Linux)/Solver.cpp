@@ -980,13 +980,7 @@ public:
             plot_title = "(b)";
         }
         PropsVector.clear();
-        //auto SigmaVec = Vector::setLinSpaced(160, 1e-08, 0.2);
-
-        auto SigmaVec = Vector::setLinSpaced(40, 1e-08, 0.0490566);
-        //auto SigmaVec = Vector::setLinSpaced(40, 0.0503145, 0.0993711);
-        //auto SigmaVec = Vector::setLinSpaced(40, 0.100629, 0.149686);
-        //auto SigmaVec = Vector::setLinSpaced(40, 0.150943, 0.2);
-
+        auto SigmaVec = Vector::setLinSpaced(160, 1e-08, 0.2);
         auto solver_results = CalculateWithVaryingSigma(200, SigmaType, SigmaVec);
         
         Vector ConvergedN;
