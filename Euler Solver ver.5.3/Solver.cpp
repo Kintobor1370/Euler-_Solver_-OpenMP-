@@ -1188,41 +1188,51 @@ public:
 //____________________________________________________USER INTERFACE_______________________________________________________
 class UserInterface
 {
-    Experiments Run;
-    vector<string> options;
-    int number_of_options;
-    int current_index;
-    string GREETINGS_STR;
-    string HINT_STR;
-    string CUSTOM_HINT_STR;
+    Experiments run;
+    vector<string> menu;
+    int numberOfOptions;
+    int currentIndex;
+    
+private:
+    const string CHOSEN_STR = "  > ";
+    const string EMPTY_STR = "    ";
+    const string GREETINGS_MSG = "Welcome!\nPlease choose experiment:\n";
+    const string HINT_MSG = "\n(Navigate with up arrow & down arrow\n Press ENTER to confirm\n Press ESC to quit)\n";
+    const string CUSTOM_HINT_MSG = "Please navigate to \'Data\\Custom\' folder and fill the \'experiment.csv\' file according to the example.\nPress ENTER to confirm and start the experiment\nPress ESC to quit\n";
 
     void DisplayMenu()
     {
         system("cls");
-        cout << GREETINGS_STR + options[current_index] + HINT_STR;   
+        cout << GREETINGS_MSG + menu[currentIndex] + HINT_MSG;   
     }
 
     void GoUp()
     {
-        current_index = (current_index + number_of_options - 1) % number_of_options;
+        currentIndex = (currentIndex + numberOfOptions - 1) % numberOfOptions;
         DisplayMenu();
     }
 
     void GoDown()
     {
-        current_index = (current_index + 1) % number_of_options;
+        currentIndex = (currentIndex + 1) % numberOfOptions;
         DisplayMenu();
     }
 
 public:
-    UserInterface(vector<string> my_options, string my_greetings, string my_hint, string my_custom_hint) :
-    options(my_options),
-    GREETINGS_STR(my_greetings),
-    HINT_STR(my_hint),
-    CUSTOM_HINT_STR(my_custom_hint)
+    UserInterface(vector<string> myOptions)
     {
-        current_index = 0;
-        number_of_options = my_options.size();
+        currentIndex = 0;
+        for (int i=0; i<myOptions.size(); i++)
+        {
+            string optionsStr = "";
+            for (int j=0; j<myOptions.size(); j++)
+            {
+                optionsStr += i == j ? CHOSEN_STR : EMPTY_STR;
+                optionsStr += myOptions[j] + "\n";
+            }
+            menu.push_back(optionsStr);
+        }
+        numberOfOptions = menu.size();
     }
 
     void Live()
@@ -1246,49 +1256,49 @@ public:
 
                 case KEY_ENT:
                     system("cls");
-                    switch(current_index)
+                    switch(currentIndex)
                     {
                         case 0: case 1: case 2:
-                            Run.Experiment_14_4(current_index);
+                            run.Experiment_14_4(currentIndex);
                             break;
                     
                         case 3:
-                            Run.Experiment_14_6('W', "Competition radius");
+                            run.Experiment_14_6('W', "Competition radius");
                             break;
                     
                         case 4:
-                            Run.Experiment_14_6('M', "Dispersal radius");
+                            run.Experiment_14_6('M', "Dispersal radius");
                             break;
                     
                         case 5:
-                            cout << CUSTOM_HINT_STR;
+                            cout << CUSTOM_HINT_MSG;
                             input = getch();
                             if (input == KEY_ENT)
                             {
                                 system("cls");
-                                Run.Custom_Experiment();
+                                run.Custom_Experiment();
                             }
                             else if (input != KEY_ESC)
                                 input = getch();
                             break;
 
                         case 6:
-                            Run.KernelTest('W', "a");
+                            run.KernelTest('W', "a");
                             cout << "Press any key\n";
                             getch();
-                            Run.KernelTest('W', "b");
+                            run.KernelTest('W', "b");
                             cout << "Press any key\n";
                             getch();
-                            Run.KernelTest('W', "c");
+                            run.KernelTest('W', "c");
                             cout << "Press any key\n";
                             getch();
-                            Run.KernelTest('M', "a");
+                            run.KernelTest('M', "a");
                             cout << "Press any key\n";
                             getch();
-                            Run.KernelTest('M', "b");
+                            run.KernelTest('M', "b");
                             cout << "Press any key\n";
                             getch();
-                            Run.KernelTest('M', "c");
+                            run.KernelTest('M', "c");
                             cout << "Tests Complete!\n";
                             break;
 
@@ -1311,22 +1321,19 @@ public:
 **                                                        MAIN BODY                                                      **
 **************************************************************************************************************************/
 int main()
-{   
-    string greetings = "Welcome!\nPlease choose experiment:\n";
-    string hint = "\n(Navigate with up arrow & down arrow\n Press ENTER to confirm\n Press ESC to quit)\n";
-    string custom_hint = "Please navigate to \'Data\\Custom\' folder and fill the \'experiment.csv\' file according to the example.\nPress ENTER to confirm and start the experiment\nPress ESC to quit\n";
+{
     vector<string> commands {
-        "  > 14.4.a\n    14.4.b\n    14.4.c\n    14.6.a\n    14.6.b\n    Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n  > 14.4.b\n    14.4.c\n    14.6.a\n    14.6.b\n    Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n    14.4.b\n  > 14.4.c\n    14.6.a\n    14.6.b\n    Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n    14.4.b\n    14.4.c\n  > 14.6.a\n    14.6.b\n    Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n    14.4.b\n    14.4.c\n    14.6.a\n  > 14.6.b\n    Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n    14.4.b\n    14.4.c\n    14.6.a\n    14.6.b\n  > Custom experiment\n    Kernels Test\n",
-        "    14.4.a\n    14.4.b\n    14.4.c\n    14.6.a\n    14.6.b\n    Custom experiment\n  > Kernels Test\n"
+        "14.4.a",
+        "14.4.b",
+        "14.4.c",
+        "14.6.a",
+        "14.6.b",
+        "Custom experiment",
+        "Kernels Test"
     };
 
-    UserInterface UI(commands, greetings, hint, custom_hint);
+    UserInterface UI(commands);
     UI.Live();
-
+    
     return 0;
 }
