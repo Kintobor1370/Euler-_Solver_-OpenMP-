@@ -6,7 +6,7 @@ These programs carry out experiments 14.4 and 14.6 (LawDieckmann200a.pdf: pages 
 _Tested on Windows 10._
 \
 \
---To execute the code:--
+To execute the code:
 
 1. Launch the command prompt from the folder containing the programs.
 2. Input the following lines:
