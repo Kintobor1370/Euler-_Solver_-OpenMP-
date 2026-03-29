@@ -6,6 +6,9 @@
 #include <cassert>
 #include <time.h>
 #include <omp.h>
+#include <cstddef>
+#include <ostream>
+#include <iomanip>
 
 #include "types.h"
 
@@ -407,6 +410,24 @@ private:
 public:
     Equation(Properties p) : props(p) {}
 
+    void printCToFile(const std::string& filename) {
+        std::ofstream fout(filename);
+        fout << std::fixed << std::setprecision(6) << N;  // ! N is vector of size 1
+        auto& first_species_C = C(0, 0);
+        auto& grind = props.MomentsGrid;
+        assert(grind.size() == first_species_C.size());
+        for (size_t i = 0; i < grind.size(); ++i)
+            fout << grind[i] << " ";
+        fout << "\n";
+        for (size_t i = 0; i < grind.size(); ++i) {
+            assert(grind.size() == first_species_C[i].size());
+            for (size_t j = 0; j < grind.size(); ++j) {
+                fout << first_species_C[i][j] << " ";
+            }
+            fout << "\n";
+        }
+    }
+
     // Make Vector of equilibrium values for N (Vector) and C (Matrix of Matrix). Here C=N*N
     Vector GenerateEquilibriumValuesForNAndC(CalcType value)
     {
@@ -582,6 +603,8 @@ public:
 
             time += step;
         }
+
+        current_equation.printCToFile("my_c.csv");
     
         return solver_results;
     }
@@ -972,7 +995,7 @@ private:
     void Visualise_Linux()
     {
         //std::this_thread::sleep_for(std::chrono::nanoseconds(20));
-        system("python Visualiser.py");
+        system("python3 Visualiser.py");
     }
 
 public:
@@ -1109,7 +1132,7 @@ int main()
 {
     Experiments Run;
     //Run.Experiment_14_4(0);                         // Experiment 14.4 (a)
-    //Run.Experiment_14_4(1);                         // Experiment 14.4 (b)
+    Run.Experiment_14_4(1);                         // Experiment 14.4 (b)
     //Run.Experiment_14_4(2);                         // Experiment 14.4 (c)
     //Run.Experiment_14_6('W', "Competition radius"); // Experiment 14.6 (a)
     //Run.Experiment_14_6('M', "Dispersal radius");   // Experiment 14.6 (b)
